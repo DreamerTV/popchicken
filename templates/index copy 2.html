@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Popchicken 點擊遊戲</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background-image: url("{{ url_for('static', filename='images/popcat_closed.png') }}");
+            background-size: cover;
+            background-position: center;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        .top-section {
+            width: 100%;
+            text-align: center;
+            padding: 10px 0;
+        }
+        .top-section h1 {
+            font-size: 48px;
+            font-weight: bold;
+            color: black;
+            text-shadow: 3px 3px 7px gray;
+        }
+        .top-section .counter {
+            font-size: 40px;
+            font-weight: bold;
+            color: black;
+            text-shadow: 3px 3px 7px gray;
+        }
+        .cps-counter {
+            font-size: 30px;
+            font-weight: bold;
+            color: green;
+            text-shadow: 2px 2px 5px lightgray;
+        }
+        .leaderboard-container {
+            position: absolute;
+            bottom: 0;
+            width: 50%;
+            text-align: center;
+            background: white;
+            padding: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-radius: 10px;
+        }
+        .leaderboard-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s ease-in-out;
+        }
+        .leaderboard-content.show {
+            max-height: 200px;
+        }
+        .leaderboard-content ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        .leaderboard-content li {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px;
+            border-bottom: 0.5px solid lightgray;
+        }
+        .rank {
+            font-weight: bold;
+        }
+        .rate {
+            color: green;
+        }
+        .toggle-button {
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.7);
+            padding: 5px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        let username = localStorage.getItem("username") || "";
+        let clickTimestamps = [];  // 記錄玩家點擊時間
+        let leaderboardData = [];  // 存放排行榜的即時資訊
+
+        document.addEventListener("DOMContentLoaded", function () {
+            if (!username) {
+                username = prompt("請輸入你的名稱：");
+                if (username) {
+                    localStorage.setItem("username", username);
+                    location.reload();
+                }
+            }
+            updateCounter();
+            loadLeaderboard();
+            document.body.addEventListener("click", clickPopcat);
+            setInterval(updateCPS, 100);  // 每 0.1 秒更新本地 CPS
+            setInterval(loadLeaderboard, 100);  // 每 0.1 秒刷新排行榜 CPS
+        });
+    </script>
+    
+    <div class="top-section">
+        <h1>POPCHICKEN</h1>
+        <div class="counter" id="counter">0</div>
+        <div class="cps-counter">CPS: <span id="cps">0.00</span></div>
+    </div>
+    
+    <audio id="popSound" src="{{ url_for('static', filename='audio/popcat-click.mp3') }}" preload="auto"></audio>
+    
+    <div class="leaderboard-container">
+        <div class="toggle-button" onclick="toggleLeaderboard()">顯示/隱藏 排行榜</div>
+        <div id="leaderboard" class="leaderboard-content"></div>
+    </div>
+
+    <script>
+        function clickPopcat() {
+            if (!username) {
+                alert("請先輸入你的名稱！");
+                location.reload();
+                return;
+            }
+
+            let body = document.body;
+            let popSound = document.getElementById("popSound");
+
+            body.style.backgroundImage = "url('{{ url_for('static', filename='images/popcat_open.png') }}')";
+            popSound.play();
+            
+            setTimeout(() => {
+                body.style.backgroundImage = "url('{{ url_for('static', filename='images/popcat_closed.png') }}')";
+            }, 100);
+
+            clickTimestamps.push(Date.now());
+            updateCPS(); // 立即更新本地CPS
+
+            fetch("/click", { 
+                method: "POST", 
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username }) 
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("counter").innerText = data.clicks;
+            });
+        }
+
+        function updateCounter() {
+            if (!username) return;
+            
+            fetch(`/get_clicks?username=${encodeURIComponent(username)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.clicks !== undefined) {
+                        document.getElementById("counter").innerText = data.clicks;
+                    }
+                })
+                .catch(error => console.error("獲取點擊數失敗:", error));
+        }
+
+        function updateCPS() {
+            let now = Date.now();
+            clickTimestamps = clickTimestamps.filter(t => now - t < 1000); // 只保留最近 1 秒內的點擊
+            let cps = clickTimestamps.length;
+            document.getElementById("cps").innerText = cps.toFixed(2);
+        }
+
+        function loadLeaderboard() {
+            fetch("/leaderboard")
+                .then(response => response.json())
+                .then(data => {
+                    if (!Array.isArray(data)) {
+                        console.error("排行榜數據格式錯誤:", data);
+                        return;
+                    }
+
+                    leaderboardData = data.map(user => ({
+                        name: user.name,
+                        clicks: user.clicks,
+                        cps: calculateCPS(user.timestamps)
+                    }));
+
+                    leaderboardData.sort((a, b) => b.cps - a.cps);  // 按 CPS 排序
+
+                    let leaderboardHtml = "<ul>";
+                    leaderboardData.forEach((user, index) => {
+                        leaderboardHtml += `
+                            <li>
+                                <span class='rank'>${index + 1}. ${user.name}</span> 
+                                (<span class='rate'>CPS: ${user.cps.toFixed(2)}</span>) 
+                                ${user.clicks} 次
+                            </li>`;
+                    });
+                    leaderboardHtml += "</ul>";
+                    document.getElementById("leaderboard").innerHTML = leaderboardHtml;
+                })
+                .catch(error => console.error("獲取排行榜失敗:", error));
+        }
+
+        function calculateCPS(timestamps) {
+            if (!timestamps || timestamps.length === 0) return 0;
+
+            let now = Date.now();
+            let recentClicks = timestamps.filter(t => now - t < 1000);  // 取最近 1 秒內點擊數
+            return recentClicks.length;
+        }
+
+        function toggleLeaderboard() {
+            let leaderboard = document.getElementById("leaderboard");
+            leaderboard.classList.toggle("show");
+        }
+    </script>
+</body>
+</html>
