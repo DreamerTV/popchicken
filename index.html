@@ -2,175 +2,64 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Popchicken 點擊遊戲</title>
     <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100vw;
-            height: 100vh;
-            overflow: hidden;
-            background-image: url("/static/images/popcat_closed.png");
-            background-size: cover;
-            background-position: center;
-            cursor: pointer;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+        body {
             text-align: center;
+            font-family: Arial, sans-serif;
+            background-color: #f8f8f8;
         }
-        .top-section {
-            margin-top: 20px;
-            text-align: center;
-        }
-        .top-section h1 {
-            font-size: 48px;
-            font-weight: bold;
-            color: white;
-            text-shadow: 3px 3px 10px black;
-        }
-        .counter {
-            font-size: 40px;
-            font-weight: bold;
-            color: yellow;
-            text-shadow: 2px 2px 8px black;
-        }
-        .leaderboard-container {
-            position: absolute;
-            bottom: 20px;
-            width: 30%;
-            text-align: center;
-            background: rgba(255, 255, 255, 0.85);
+        .leaderboard {
+            background: white;
             padding: 10px;
-            border-radius: 15px;
-            transition: all 0.5s ease-in-out;
-        }
-        .leaderboard-content {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.5s ease-in-out;
-        }
-        .leaderboard-content.show {
-            max-height: 300px;
-        }
-        .leaderboard-content ul {
-            list-style-type: none;
-            padding: 0;
-            margin: 0;
-        }
-        .leaderboard-content li {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px;
-            border-bottom: 1px solid lightgray;
-            font-size: 18px;
-        }
-        .toggle-button {
-            cursor: pointer;
-            background: black;
-            color: white;
-            padding: 8px;
-            border-radius: 5px;
+            margin-top: 20px;
             display: inline-block;
-            margin-top: 10px;
+            border-radius: 5px;
         }
     </style>
 </head>
 <body>
-    <div class="top-section">
-        <h1>POPCHICKEN</h1>
-        <div class="counter" id="counter">0</div>
+    <h1>POPCHICKEN 點擊遊戲</h1>
+    <h2 id="counter">0 點擊</h2>
+    <button id="clickButton">點擊</button>
+
+    <div class="leaderboard">
+        <h3>排行榜</h3>
+        <ul id="leaderboardList"></ul>
     </div>
-    
-    <audio id="popSound" src="/static/audio/popcat-click.mp3" preload="auto"></audio>
-    
-    <div class="leaderboard-container">
-        <div class="toggle-button" onclick="toggleLeaderboard()">顯示/隱藏 排行榜</div>
-        <div id="leaderboard" class="leaderboard-content"></div>
-    </div>
-    
+
     <script>
         let username = localStorage.getItem("username") || "";
-        let clickCount = 0;
-        
-        document.addEventListener("DOMContentLoaded", function () {
-            if (!username.trim()) {
-                username = prompt("請輸入你的名稱：");
-                if (username) {
-                    localStorage.setItem("username", username);
-                    location.reload();
-                }
-            }
-            updateCounter();
-            loadLeaderboard();
-            document.body.addEventListener("click", clickPopcat);
-        });
+        if (!username) {
+            username = prompt("請輸入你的名稱：");
+            localStorage.setItem("username", username);
+        }
 
-        function clickPopcat() {
-            if (!username) {
-                alert("請先輸入你的名稱！");
-                location.reload();
-                return;
-            }
-            
-            clickCount++;
-            document.getElementById("counter").innerText = clickCount;
-            document.body.style.backgroundImage = "url('/static/images/popcat_open.png')";
-            
-            let soundClone = document.getElementById("popSound").cloneNode();
-            soundClone.play();
-            
-            setTimeout(() => {
-                document.body.style.backgroundImage = "url('/static/images/popcat_closed.png')";
-            }, 100);
-
-            fetch("/click", {
-                method: "POST",
+        document.getElementById("clickButton").addEventListener("click", function() {
+            fetch("/click", { 
+                method: "POST", 
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ username })
             })
-            .catch(error => console.error("點擊錯誤:", error));
-        }
-
-        function updateCounter() {
-            if (!username) return;
-            fetch(`/get_clicks?username=${encodeURIComponent(username)}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.clicks !== undefined) {
-                        clickCount = data.clicks;
-                        document.getElementById("counter").innerText = clickCount;
-                    }
-                })
-                .catch(error => console.error("獲取點擊數失敗:", error));
-        }
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("counter").innerText = data.clicks + " 點擊";
+            });
+        });
 
         function loadLeaderboard() {
             fetch("/leaderboard")
-                .then(response => response.json())
-                .then(data => {
-                    if (!Array.isArray(data)) {
-                        console.error("排行榜數據錯誤:", data);
-                        return;
-                    }
-                    let totalClicks = data.reduce((sum, user) => sum + user.clicks, 0);
-                    let leaderboardHtml = `<div><strong>總點擊數: ${totalClicks} 次</strong></div><ul>`;
-                    
-                    data.forEach((user, index) => {
-                        const rankEmojis = ["🥇", "🥈", "🥉"];
-                        let rankDisplay = rankEmojis[index] || `${index + 1}.`;
-                        leaderboardHtml += `<li><span>${rankDisplay} ${user.name}</span> <span>${user.clicks} 次</span></li>`;
-                    });
-                    leaderboardHtml += "</ul>";
-                    document.getElementById("leaderboard").innerHTML = leaderboardHtml;
-                })
-                .catch(error => console.error("獲取排行榜失敗:", error));
+            .then(res => res.json())
+            .then(data => {
+                let list = document.getElementById("leaderboardList");
+                list.innerHTML = "";
+                data.forEach((user, index) => {
+                    list.innerHTML += `<li>${index + 1}. ${user.name} - ${user.clicks} 次 - CPS: ${user.cps}</li>`;
+                });
+            });
         }
 
-        function toggleLeaderboard() {
-            document.getElementById("leaderboard").classList.toggle("show");
-        }
+        setInterval(loadLeaderboard, 100);
     </script>
 </body>
 </html>
